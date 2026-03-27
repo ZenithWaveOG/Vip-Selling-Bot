@@ -19,7 +19,7 @@ print("Imports OK", flush=True)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-ADMIN_IDS = [7522869983]  # Replace with your Telegram user ID
+ADMIN_IDS = [7515220054]  # Replace with your Telegram user ID
 
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -620,7 +620,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== CONVERSATION HANDLERS ====================
 conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(coupon_type_callback, pattern="^ctype_")],
+    entry_points=[CallbackQueryHandler(coupon_type_callback, pattern="^ctype_", per_message=False)],
     states={
         CUSTOM_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_quantity_input)]
     },
@@ -628,7 +628,7 @@ conv_handler = ConversationHandler(
 )
 
 payment_conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(verify_payment_start, pattern="^verify_")],
+    entry_points=[CallbackQueryHandler(verify_payment_start, pattern="^verify_", per_message=False)],
     states={
         WAITING_PAYER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, payment_name_handler)],
         WAITING_PAYMENT_SCREENSHOT: [MessageHandler(filters.PHOTO, payment_screenshot_handler)]
@@ -690,6 +690,24 @@ def set_webhook():
 @app.route('/')
 def home():
     return "Bot is running!", 200
+
+# ==================== AUTOMATIC WEBHOOK SETUP ON STARTUP ====================
+def set_webhook_automatically():
+    """Set webhook automatically if running on Render (RENDER_EXTERNAL_URL is set)."""
+    external_url = os.environ.get("RENDER_EXTERNAL_URL")
+    if external_url:
+        webhook_url = external_url.rstrip('/') + '/webhook'
+        logging.info(f"Setting webhook to {webhook_url}")
+        # Use asyncio to run the webhook setting in the background loop
+        async def _set():
+            await telegram_app.bot.set_webhook(url=webhook_url)
+            logging.info("Webhook set successfully")
+        asyncio.run_coroutine_threadsafe(_set(), bot_loop)
+    else:
+        logging.info("RENDER_EXTERNAL_URL not set, skipping automatic webhook setup")
+
+# Run after the bot is initialized
+set_webhook_automatically()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False, use_reloader=False)
