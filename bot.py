@@ -248,7 +248,7 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Update the admin keyboard with new toggle button text
         await update.message.reply_text(f"Bot status changed to {new_status.upper()}.", reply_markup=get_admin_reply_keyboard())
 
-# --- Existing callbacks for coupon type selection, etc. (unchanged except minor edits) ---
+# --- Existing callbacks for coupon type selection, etc. ---
 async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
@@ -358,7 +358,7 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, q
     verify_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify Payment", callback_data=f"verify_{order_id}")]])
     await (update.message or update.callback_query.message).reply_text("After payment, click Verify.", reply_markup=verify_keyboard)
 
-# --- Payment verification flow (unchanged) ---
+# --- Payment verification flow ---
 async def verify_payment_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return ConversationHandler.END
@@ -422,7 +422,7 @@ async def payment_screenshot_handler(update: Update, context: ContextTypes.DEFAU
 
     return ConversationHandler.END
 
-# --- Admin accept/decline (unchanged) ---
+# --- Admin accept/decline ---
 async def admin_accept_decline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
@@ -620,20 +620,22 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== CONVERSATION HANDLERS ====================
 conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(coupon_type_callback, pattern="^ctype_", per_message=False)],
+    entry_points=[CallbackQueryHandler(coupon_type_callback, pattern="^ctype_")],
     states={
         CUSTOM_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_quantity_input)]
     },
-    fallbacks=[]
+    fallbacks=[],
+    per_message=False  # Add this parameter to suppress warning
 )
 
 payment_conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(verify_payment_start, pattern="^verify_", per_message=False)],
+    entry_points=[CallbackQueryHandler(verify_payment_start, pattern="^verify_")],
     states={
         WAITING_PAYER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, payment_name_handler)],
         WAITING_PAYMENT_SCREENSHOT: [MessageHandler(filters.PHOTO, payment_screenshot_handler)]
     },
-    fallbacks=[]
+    fallbacks=[],
+    per_message=False  # Add this parameter to suppress warning
 )
 
 # ==================== BACKGROUND EVENT LOOP ====================
