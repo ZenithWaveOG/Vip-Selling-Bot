@@ -19,7 +19,7 @@ print("Imports OK", flush=True)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-ADMIN_IDS = [7522869983]  # Replace with your Telegram user ID
+ADMIN_IDS = [7515220054]  # Replace with your Telegram user ID
 
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -66,6 +66,21 @@ def get_main_menu(user_id=None):
         buttons.append([KeyboardButton("🛠 Admin Panel")])
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
+def get_admin_reply_keyboard():
+    # Get current bot status to set toggle button text
+    status = supabase.table('settings').select('value').eq('key', 'bot_status').execute()
+    current = status.data[0]['value'] if status.data else 'on'
+    toggle_text = "🔛 Turn Off" if current == 'on' else "🔴 Turn On"
+    
+    buttons = [
+        ["➕ Add Coupon", "➖ Remove Coupon"],
+        ["📊 Stock", "🎁 Get Free Code"],
+        ["💰 Change Prices", "📢 Broadcast"],
+        ["🕒 Last 10 Purchases", "🖼 Update QR"],
+        [toggle_text]
+    ]
+    return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
+
 def get_agree_decline_keyboard():
     keyboard = [
         [InlineKeyboardButton("✅ Agree", callback_data="agree_terms")],
@@ -79,23 +94,6 @@ def get_coupon_type_keyboard():
 
 def generate_order_id():
     return 'ORD' + ''.join(random.choices(string.digits, k=14))
-
-def get_admin_panel_keyboard():
-    status = supabase.table('settings').select('value').eq('key', 'bot_status').execute()
-    current = status.data[0]['value'] if status.data else 'on'
-    status_text = "🔛 Turn Off" if current == 'on' else "🔴 Turn On"
-    keyboard = [
-        [InlineKeyboardButton("➕ Add Coupon", callback_data="admin_add")],
-        [InlineKeyboardButton("➖ Remove Coupon", callback_data="admin_remove")],
-        [InlineKeyboardButton("📊 Stock", callback_data="admin_stock")],
-        [InlineKeyboardButton("🎁 Get Free Code", callback_data="admin_free")],
-        [InlineKeyboardButton("💰 Change Prices", callback_data="admin_prices")],
-        [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast")],
-        [InlineKeyboardButton("🕒 Last 10 Purchases", callback_data="admin_last10")],
-        [InlineKeyboardButton("🖼 Update QR", callback_data="admin_qr")],
-        [InlineKeyboardButton(status_text, callback_data="admin_toggle")]
-    ]
-    return InlineKeyboardMarkup(keyboard)
 
 def get_coupon_type_admin_keyboard(action):
     keyboard = [[InlineKeyboardButton(f"{ct} Off", callback_data=f"admin_{action}_{ct}")] for ct in COUPON_TYPES]
@@ -142,7 +140,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text
 
-    # If admin and any admin flag is active, delegate to admin handler
+    # If admin and any admin flag is active (e.g., awaiting codes, broadcast), delegate to admin_message_handler
     if user.id in ADMIN_IDS and (
         'admin_action' in context.user_data or
         context.user_data.get('broadcast') or
@@ -173,10 +171,9 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif text == "📜 Disclaimer":
         disclaimer = (
             "1. 🕒 IF CODE SHOW REDEEMED: Wait For 12–13 min Because All Codes Are Checked Before We Add.\n"
-            "2. 📦 ELIGIBILITY: Valid only for SHEINVERSE: https://www.sheinindia.in/c/sverse-5939-37961\n"
-            "3. ⚡️ DELIVERY: codes are delivered immediately after payment confirmation.\n"
-            "4. 🚫 NO REFUNDS: All sales final. No refunds/replacements for any codes.\n"
-            "5. ❌ SUPPORT: For issues, a full screen-record from purchase to application is required."
+            "2. ⚡️ DELIVERY: codes are delivered immediately after payment confirmation.\n"
+            "3. 🚫 NO REFUNDS: All sales final. No refunds/replacements for any codes.\n"
+            "4. ❌ SUPPORT: For issues, a full screen-record from purchase to application is required."
         )
         await update.message.reply_text(disclaimer)
     elif text == "🆘 Support":
@@ -185,10 +182,66 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("@VIPAMMER", url="https://t.me/VIPAMMER")]])
         await update.message.reply_text("📢 Join our official channels for updates and deals:", reply_markup=keyboard)
     elif text == "🛠 Admin Panel" and user.id in ADMIN_IDS:
-        await update.message.reply_text("Admin Panel", reply_markup=get_admin_panel_keyboard())
+        # Show admin reply keyboard
+        await update.message.reply_text("Admin Panel", reply_markup=get_admin_reply_keyboard())
+    # Admin options (only if admin)
+    elif user.id in ADMIN_IDS and text in ["➕ Add Coupon", "➖ Remove Coupon", "📊 Stock", "🎁 Get Free Code", "💰 Change Prices", "📢 Broadcast", "🕒 Last 10 Purchases", "🖼 Update QR", "🔛 Turn Off", "🔴 Turn On"]:
+        # Handle admin options
+        await handle_admin_option(update, context, text)
     else:
         await update.message.reply_text("Use the menu buttons.")
 
+async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE, option: str):
+    """Process admin option selected from reply keyboard."""
+    if option == "➕ Add Coupon":
+        # Clear any pending states
+        context.user_data.clear()
+        await update.message.reply_text("Select coupon type to add:", reply_markup=get_coupon_type_admin_keyboard('add'))
+    elif option == "➖ Remove Coupon":
+        context.user_data.clear()
+        await update.message.reply_text("Select coupon type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
+    elif option == "📊 Stock":
+        msg = "Current Stock:\n"
+        for ct in COUPON_TYPES:
+            count = supabase.table('coupons').select('*', count='exact').eq('type', ct).eq('is_used', False).execute()
+            stock = count.count if hasattr(count, 'count') else 0
+            msg += f"{ct} Off: {stock}\n"
+        await update.message.reply_text(msg, reply_markup=get_admin_reply_keyboard())
+    elif option == "🎁 Get Free Code":
+        context.user_data.clear()
+        await update.message.reply_text("Select coupon type to get free codes:", reply_markup=get_coupon_type_admin_keyboard('free'))
+    elif option == "💰 Change Prices":
+        context.user_data.clear()
+        await update.message.reply_text("Select coupon type to change prices:", reply_markup=get_coupon_type_admin_keyboard('prices'))
+    elif option == "📢 Broadcast":
+        context.user_data.clear()
+        context.user_data['broadcast'] = True
+        await update.message.reply_text("Send the message you want to broadcast to all users:")
+    elif option == "🕒 Last 10 Purchases":
+        orders = supabase.table('orders').select('*').order('created_at', desc=True).limit(10).execute()
+        if not orders.data:
+            await update.message.reply_text("No orders yet.")
+        else:
+            msg = "Last 10 purchases:\n"
+            for o in orders.data:
+                user = supabase.table('users').select('username').eq('user_id', o['user_id']).execute()
+                username = user.data[0]['username'] if user.data else 'Unknown'
+                msg += f"{o['order_id']}: {username} - {o['coupon_type']} x{o['quantity']} - {o['status']} - {o['created_at'][:19]}\n"
+            await update.message.reply_text(msg, reply_markup=get_admin_reply_keyboard())
+    elif option == "🖼 Update QR":
+        context.user_data.clear()
+        context.user_data['awaiting_qr'] = True
+        await update.message.reply_text("Send the new QR code image.")
+    elif option in ["🔛 Turn Off", "🔴 Turn On"]:
+        # Toggle bot status
+        status = supabase.table('settings').select('value').eq('key', 'bot_status').execute()
+        current = status.data[0]['value'] if status.data else 'on'
+        new_status = 'off' if current == 'on' else 'on'
+        supabase.table('settings').upsert({'key': 'bot_status', 'value': new_status}).execute()
+        # Update the admin keyboard with new toggle button text
+        await update.message.reply_text(f"Bot status changed to {new_status.upper()}.", reply_markup=get_admin_reply_keyboard())
+
+# --- Existing callbacks for coupon type selection, etc. (unchanged except minor edits) ---
 async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
@@ -298,7 +351,7 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, q
     verify_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify Payment", callback_data=f"verify_{order_id}")]])
     await (update.message or update.callback_query.message).reply_text("After payment, click Verify.", reply_markup=verify_keyboard)
 
-# --- Payment verification flow ---
+# --- Payment verification flow (unchanged) ---
 async def verify_payment_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return ConversationHandler.END
@@ -362,7 +415,7 @@ async def payment_screenshot_handler(update: Update, context: ContextTypes.DEFAU
 
     return ConversationHandler.END
 
-# --- Admin accept/decline ---
+# --- Admin accept/decline (unchanged) ---
 async def admin_accept_decline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
@@ -416,13 +469,99 @@ async def admin_accept_decline(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         await query.edit_message_text(f"❌ Order {order_id} declined.")
 
-# ==================== ADMIN HANDLERS ====================
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ==================== ADMIN MESSAGE HANDLER (for adding, removing, etc.) ====================
+async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
-        await update.message.reply_text("Unauthorized.")
         return
-    await update.message.reply_text("Admin Panel", reply_markup=get_admin_panel_keyboard())
+    text = update.message.text if update.message.text else None
+    photo = update.message.photo[-1] if update.message.photo else None
 
+    # Handle broadcast
+    if context.user_data.get('broadcast'):
+        users = supabase.table('users').select('user_id').execute()
+        success = 0
+        for u in users.data:
+            try:
+                await context.bot.send_message(u['user_id'], text)
+                success += 1
+            except:
+                pass
+        await update.message.reply_text(f"Broadcast sent to {success}/{len(users.data)} users.", reply_markup=get_admin_reply_keyboard())
+        context.user_data.pop('broadcast', None)
+        return
+
+    # Handle QR update (photo)
+    if context.user_data.get('awaiting_qr'):
+        if photo:
+            file_id = photo.file_id
+            supabase.table('settings').upsert({'key': 'qr_image', 'value': file_id}).execute()
+            await update.message.reply_text("QR code updated.", reply_markup=get_admin_reply_keyboard())
+            context.user_data.pop('awaiting_qr', None)
+        else:
+            await update.message.reply_text("Please send an image.")
+        return
+
+    # Handle admin actions (add, remove, free, price)
+    if 'admin_action' in context.user_data:
+        action = context.user_data['admin_action']
+        if action[0] == 'add':
+            ctype = action[1]
+            if not text:
+                await update.message.reply_text("Please send the coupon codes as text.")
+                return
+            codes = text.strip().split('\n')
+            for code in codes:
+                code = code.strip()
+                if code:
+                    supabase.table('coupons').insert({'code': code, 'type': ctype}).execute()
+            await update.message.reply_text(f"Coupons added successfully to {ctype} Off.", reply_markup=get_admin_reply_keyboard())
+            context.user_data.pop('admin_action', None)
+
+        elif action[0] == 'remove':
+            ctype = action[1]
+            try:
+                num = int(text)
+                coupons = supabase.table('coupons').select('id').eq('type', ctype).eq('is_used', False).order('id').limit(num).execute()
+                ids = [c['id'] for c in coupons.data]
+                if ids:
+                    supabase.table('coupons').delete().in_('id', ids).execute()
+                await update.message.reply_text(f"Removed {len(ids)} coupons from {ctype} Off.", reply_markup=get_admin_reply_keyboard())
+            except:
+                await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
+            context.user_data.pop('admin_action', None)
+
+        elif action[0] == 'free':
+            ctype = action[1]
+            try:
+                num = int(text)
+                coupons = supabase.table('coupons').select('code').eq('type', ctype).eq('is_used', False).limit(num).execute()
+                if len(coupons.data) < num:
+                    await update.message.reply_text(f"Only {len(coupons.data)} available.", reply_markup=get_admin_reply_keyboard())
+                codes = [c['code'] for c in coupons.data]
+                for c in coupons.data:
+                    supabase.table('coupons').update({
+                        'is_used': True,
+                        'used_by': update.effective_user.id,
+                        'used_at': datetime.utcnow().isoformat()
+                    }).eq('code', c['code']).execute()
+                await update.message.reply_text(f"Here are your free codes:\n" + "\n".join(codes), reply_markup=get_admin_reply_keyboard())
+            except:
+                await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
+            context.user_data.pop('admin_action', None)
+
+        elif action[0] == 'price':
+            ctype = action[1]
+            qty = action[2]
+            try:
+                new_price = int(text)
+                col = f"price_{qty}"
+                supabase.table('prices').update({col: new_price}).eq('coupon_type', ctype).execute()
+                await update.message.reply_text(f"Price updated for {ctype} Off, {qty} Qty: ₹{new_price}", reply_markup=get_admin_reply_keyboard())
+            except:
+                await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
+            context.user_data.pop('admin_action', None)
+
+# ==================== ADMIN CALLBACK (for inline sub-menus) ====================
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -432,57 +571,13 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
-    # Clear any previous admin flags
+    # Clear any previous admin flags (but keep the new action)
     context.user_data.pop('broadcast', None)
     context.user_data.pop('awaiting_qr', None)
-    context.user_data.pop('admin_action', None)
+    # Don't clear admin_action here, we are about to set it
 
-    if data == "admin_add":
-        await query.edit_message_text("Select coupon type to add:", reply_markup=get_coupon_type_admin_keyboard('add'))
-    elif data == "admin_remove":
-        await query.edit_message_text("Select coupon type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
-    elif data == "admin_stock":
-        msg = "Current Stock:\n"
-        for ct in COUPON_TYPES:
-            count = supabase.table('coupons').select('*', count='exact').eq('type', ct).eq('is_used', False).execute()
-            stock = count.count if hasattr(count, 'count') else 0
-            msg += f"{ct} Off: {stock}\n"
-        await query.edit_message_text(msg)
-    elif data == "admin_free":
-        await query.edit_message_text("Select coupon type to get free codes:", reply_markup=get_coupon_type_admin_keyboard('free'))
-    elif data == "admin_prices":
-        await query.edit_message_text("Select coupon type to change prices:", reply_markup=get_coupon_type_admin_keyboard('prices'))
-    elif data == "admin_broadcast":
-        context.user_data['broadcast'] = True
-        await query.edit_message_text("Send the message you want to broadcast to all users:")
-        return
-    elif data == "admin_last10":
-        orders = supabase.table('orders').select('*').order('created_at', desc=True).limit(10).execute()
-        if not orders.data:
-            await query.edit_message_text("No orders yet.")
-        else:
-            msg = "Last 10 purchases:\n"
-            for o in orders.data:
-                user = supabase.table('users').select('username').eq('user_id', o['user_id']).execute()
-                username = user.data[0]['username'] if user.data else 'Unknown'
-                msg += f"{o['order_id']}: {username} - {o['coupon_type']} x{o['quantity']} - {o['status']} - {o['created_at'][:19]}\n"
-            await query.edit_message_text(msg)
-    elif data == "admin_qr":
-        context.user_data['awaiting_qr'] = True
-        await query.edit_message_text("Send the new QR code image.")
-        return
-    elif data == "admin_toggle":
-        status = supabase.table('settings').select('value').eq('key', 'bot_status').execute()
-        current = status.data[0]['value'] if status.data else 'on'
-        new_status = 'off' if current == 'on' else 'on'
-        supabase.table('settings').upsert({'key': 'bot_status', 'value': new_status}).execute()
-        await query.edit_message_text(f"Bot status changed to {new_status.upper()}.")
-        return
-
-    # Handle sub-actions
-    elif data.startswith('admin_add_'):
+    if data.startswith('admin_add_'):
         ctype = data.split('_')[2]
-        # Clear any existing conversation state to avoid interference
         context.user_data.clear()
         context.user_data['admin_action'] = ('add', ctype)
         await query.edit_message_text(f"Send the coupon codes for {ctype} Off (one per line):")
@@ -512,97 +607,9 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         context.user_data['admin_action'] = ('price', ctype, qty)
         await query.edit_message_text(f"Enter new price for {ctype} Off, {qty} Qty:")
-
-async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id not in ADMIN_IDS:
-        return
-    text = update.message.text if update.message.text else None
-    photo = update.message.photo[-1] if update.message.photo else None
-
-    # Handle broadcast
-    if context.user_data.get('broadcast'):
-        users = supabase.table('users').select('user_id').execute()
-        success = 0
-        for u in users.data:
-            try:
-                await context.bot.send_message(u['user_id'], text)
-                success += 1
-            except:
-                pass
-        await update.message.reply_text(f"Broadcast sent to {success}/{len(users.data)} users.")
-        context.user_data.pop('broadcast', None)
-        return
-
-    # Handle QR update (photo)
-    if context.user_data.get('awaiting_qr'):
-        if photo:
-            file_id = photo.file_id
-            supabase.table('settings').upsert({'key': 'qr_image', 'value': file_id}).execute()
-            await update.message.reply_text("QR code updated.")
-            context.user_data.pop('awaiting_qr', None)
-        else:
-            await update.message.reply_text("Please send an image.")
-        return
-
-    # Handle admin actions (add, remove, free, price)
-    if 'admin_action' in context.user_data:
-        action = context.user_data['admin_action']
-        if action[0] == 'add':
-            ctype = action[1]
-            if not text:
-                await update.message.reply_text("Please send the coupon codes as text.")
-                return
-            codes = text.strip().split('\n')
-            for code in codes:
-                code = code.strip()
-                if code:
-                    supabase.table('coupons').insert({'code': code, 'type': ctype}).execute()
-            await update.message.reply_text(f"Coupons added successfully to {ctype} Off.")
-            context.user_data.pop('admin_action', None)
-
-        elif action[0] == 'remove':
-            ctype = action[1]
-            try:
-                num = int(text)
-                coupons = supabase.table('coupons').select('id').eq('type', ctype).eq('is_used', False).order('id').limit(num).execute()
-                ids = [c['id'] for c in coupons.data]
-                if ids:
-                    supabase.table('coupons').delete().in_('id', ids).execute()
-                await update.message.reply_text(f"Removed {len(ids)} coupons from {ctype} Off.")
-            except:
-                await update.message.reply_text("Invalid number.")
-            context.user_data.pop('admin_action', None)
-
-        elif action[0] == 'free':
-            ctype = action[1]
-            try:
-                num = int(text)
-                coupons = supabase.table('coupons').select('code').eq('type', ctype).eq('is_used', False).limit(num).execute()
-                if len(coupons.data) < num:
-                    await update.message.reply_text(f"Only {len(coupons.data)} available.")
-                codes = [c['code'] for c in coupons.data]
-                for c in coupons.data:
-                    supabase.table('coupons').update({
-                        'is_used': True,
-                        'used_by': update.effective_user.id,
-                        'used_at': datetime.utcnow().isoformat()
-                    }).eq('code', c['code']).execute()
-                await update.message.reply_text(f"Here are your free codes:\n" + "\n".join(codes))
-            except:
-                await update.message.reply_text("Invalid number.")
-            context.user_data.pop('admin_action', None)
-
-        elif action[0] == 'price':
-            ctype = action[1]
-            qty = action[2]
-            try:
-                new_price = int(text)
-                col = f"price_{qty}"
-                supabase.table('prices').update({col: new_price}).eq('coupon_type', ctype).execute()
-                await update.message.reply_text(f"Price updated for {ctype} Off, {qty} Qty: ₹{new_price}")
-            except:
-                await update.message.reply_text("Invalid number.")
-            context.user_data.pop('admin_action', None)
+    else:
+        # Fallback - shouldn't happen
+        await query.edit_message_text("Unknown action.")
 
 # ==================== CONVERSATION HANDLERS ====================
 conv_handler = ConversationHandler(
@@ -635,7 +642,7 @@ threading.Thread(target=start_background_loop, args=(bot_loop,), daemon=True).st
 telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(CommandHandler("admin", admin_panel))
+telegram_app.add_handler(CommandHandler("admin", admin_panel))  # keep for compatibility
 
 telegram_app.add_handler(conv_handler)
 telegram_app.add_handler(payment_conv_handler)
