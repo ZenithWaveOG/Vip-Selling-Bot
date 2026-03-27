@@ -19,7 +19,7 @@ print("Imports OK", flush=True)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-ADMIN_IDS = [7522869983]  # Replace with your Telegram user ID
+ADMIN_IDS = [8778422236]  # Replace with your Telegram user ID
 
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -52,7 +52,7 @@ MAX_QUANTITY = 5
 
 # Conversation states
 SELECTING_COUPON_TYPE, CUSTOM_QUANTITY = range(2)
-WAITING_PAYER_NAME, WAITING_PAYMENT_SCREENSHOT = range(2, 4)
+WAITING_UTR, WAITING_PAYMENT_SCREENSHOT = range(2, 4)  # renamed
 
 # ==================== HELPER FUNCTIONS ====================
 def get_main_menu(user_id=None):
@@ -67,7 +67,6 @@ def get_main_menu(user_id=None):
     return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
 def get_admin_reply_keyboard():
-    # Get current bot status to set toggle button text
     status = supabase.table('settings').select('value').eq('key', 'bot_status').execute()
     current = status.data[0]['value'] if status.data else 'on'
     toggle_text = "🔛 Turn Off" if current == 'on' else "🔴 Turn On"
@@ -135,7 +134,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(stock_msg, reply_markup=get_main_menu(user.id))
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Command handler for /admin – shows admin reply keyboard."""
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("Unauthorized.")
         return
@@ -147,7 +145,6 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text
 
-    # If admin and any admin flag is active (e.g., awaiting codes, broadcast), delegate to admin_message_handler
     if user.id in ADMIN_IDS and (
         'admin_action' in context.user_data or
         context.user_data.get('broadcast') or
@@ -156,7 +153,6 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await admin_message_handler(update, context)
         return
 
-    # Normal user menu
     if text == "🛒 Buy Vouchers":
         terms = (
             "1. Once coupon is delivered, no returns or refunds will be accepted.\n"
@@ -189,19 +185,14 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("@VIPAMMER", url="https://t.me/VIPAMMER")]])
         await update.message.reply_text("📢 Join our official channels for updates and deals:", reply_markup=keyboard)
     elif text == "🛠 Admin Panel" and user.id in ADMIN_IDS:
-        # Show admin reply keyboard
         await update.message.reply_text("Admin Panel", reply_markup=get_admin_reply_keyboard())
-    # Admin options (only if admin)
     elif user.id in ADMIN_IDS and text in ["➕ Add Coupon", "➖ Remove Coupon", "📊 Stock", "🎁 Get Free Code", "💰 Change Prices", "📢 Broadcast", "🕒 Last 10 Purchases", "🖼 Update QR", "🔛 Turn Off", "🔴 Turn On"]:
-        # Handle admin options
         await handle_admin_option(update, context, text)
     else:
         await update.message.reply_text("Use the menu buttons.")
 
 async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE, option: str):
-    """Process admin option selected from reply keyboard."""
     if option == "➕ Add Coupon":
-        # Clear any pending states
         context.user_data.clear()
         await update.message.reply_text("Select coupon type to add:", reply_markup=get_coupon_type_admin_keyboard('add'))
     elif option == "➖ Remove Coupon":
@@ -240,15 +231,12 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data['awaiting_qr'] = True
         await update.message.reply_text("Send the new QR code image.")
     elif option in ["🔛 Turn Off", "🔴 Turn On"]:
-        # Toggle bot status
         status = supabase.table('settings').select('value').eq('key', 'bot_status').execute()
         current = status.data[0]['value'] if status.data else 'on'
         new_status = 'off' if current == 'on' else 'on'
         supabase.table('settings').upsert({'key': 'bot_status', 'value': new_status}).execute()
-        # Update the admin keyboard with new toggle button text
         await update.message.reply_text(f"Bot status changed to {new_status.upper()}.", reply_markup=get_admin_reply_keyboard())
 
-# --- Existing callbacks for coupon type selection, etc. ---
 async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
@@ -358,7 +346,7 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, q
     verify_keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("✅ Verify Payment", callback_data=f"verify_{order_id}")]])
     await (update.message or update.callback_query.message).reply_text("After payment, click Verify.", reply_markup=verify_keyboard)
 
-# --- Payment verification flow ---
+# --- Payment verification flow (UTR instead of payer name) ---
 async def verify_payment_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return ConversationHandler.END
@@ -366,13 +354,13 @@ async def verify_payment_start(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
     order_id = query.data.split('_')[1]
     context.user_data['verify_order_id'] = order_id
-    await query.edit_message_text("Please enter the payer name (the name used for payment):")
-    return WAITING_PAYER_NAME
+    await query.edit_message_text("Please enter the UTR number (Transaction ID) of your payment:")
+    return WAITING_UTR
 
-async def payment_name_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def utr_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return ConversationHandler.END
-    context.user_data['payer_name'] = update.message.text
+    context.user_data['utr_number'] = update.message.text
     await update.message.reply_text("Please send the screenshot of the payment:")
     return WAITING_PAYMENT_SCREENSHOT
 
@@ -392,12 +380,12 @@ async def payment_screenshot_handler(update: Update, context: ContextTypes.DEFAU
 
     admin_list = ADMIN_IDS
     user_mention = f"@{update.effective_user.username}" if update.effective_user.username else f"{update.effective_user.first_name}"
-    payer_name = context.user_data['payer_name']
+    utr_number = context.user_data['utr_number']
 
     admin_msg = (
         f"Payment verification requested:\n"
         f"User: {user_mention} (ID: {update.effective_user.id})\n"
-        f"Payer Name: {payer_name}\n"
+        f"UTR Number: {utr_number}\n"
         f"Order: {o['order_id']}\n"
         f"Type: {o['coupon_type']} x{o['quantity']}\n"
         f"Total: ₹{o['total_price']}\n\n"
@@ -417,12 +405,12 @@ async def payment_screenshot_handler(update: Update, context: ContextTypes.DEFAU
     await update.message.reply_text("Verification request sent to admin. Please wait for approval.")
 
     context.user_data.pop('verify_order_id', None)
-    context.user_data.pop('payer_name', None)
+    context.user_data.pop('utr_number', None)
     context.user_data.pop('screenshot_file_id', None)
 
     return ConversationHandler.END
 
-# --- Admin accept/decline ---
+# --- Admin accept/decline with confirmation messages ---
 async def admin_accept_decline(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
@@ -468,7 +456,6 @@ async def admin_accept_decline(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
         await query.edit_message_text(f"✅ Order {order_id} completed. Codes sent to user.")
-        # Confirmation for admin
         await query.message.reply_text(f"You approved the payment for order {order_id}.")
     else:  # decline
         supabase.table('orders').update({'status': 'declined'}).eq('order_id', order_id).execute()
@@ -477,17 +464,15 @@ async def admin_accept_decline(update: Update, context: ContextTypes.DEFAULT_TYP
             "❌ Your payment has been declined by admin. If there is any issue, contact support."
         )
         await query.edit_message_text(f"❌ Order {order_id} declined.")
-        # Confirmation for admin
         await query.message.reply_text(f"You declined the payment for order {order_id}.")
 
-# ==================== ADMIN MESSAGE HANDLER (for adding, removing, etc.) ====================
+# ==================== ADMIN MESSAGE HANDLER (unchanged) ====================
 async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
     text = update.message.text if update.message.text else None
     photo = update.message.photo[-1] if update.message.photo else None
 
-    # Handle broadcast
     if context.user_data.get('broadcast'):
         users = supabase.table('users').select('user_id').execute()
         success = 0
@@ -501,7 +486,6 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop('broadcast', None)
         return
 
-    # Handle QR update (photo)
     if context.user_data.get('awaiting_qr'):
         if photo:
             file_id = photo.file_id
@@ -512,7 +496,6 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text("Please send an image.")
         return
 
-    # Handle admin actions (add, remove, free, price)
     if 'admin_action' in context.user_data:
         action = context.user_data['admin_action']
         if action[0] == 'add':
@@ -572,7 +555,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
-# ==================== ADMIN CALLBACK (for inline sub-menus) ====================
+# ==================== ADMIN CALLBACK ====================
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -582,10 +565,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
-    # Clear any previous admin flags (but keep the new action)
     context.user_data.pop('broadcast', None)
     context.user_data.pop('awaiting_qr', None)
-    # Don't clear admin_action here, we are about to set it
 
     if data.startswith('admin_add_'):
         ctype = data.split('_')[2]
@@ -619,7 +600,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['admin_action'] = ('price', ctype, qty)
         await query.edit_message_text(f"Enter new price for {ctype} Off, {qty} Qty:")
     else:
-        # Fallback - shouldn't happen
         await query.edit_message_text("Unknown action.")
 
 # ==================== CONVERSATION HANDLERS ====================
@@ -629,17 +609,17 @@ conv_handler = ConversationHandler(
         CUSTOM_QUANTITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_quantity_input)]
     },
     fallbacks=[],
-    per_message=False  # Add this parameter to suppress warning
+    per_message=False
 )
 
 payment_conv_handler = ConversationHandler(
     entry_points=[CallbackQueryHandler(verify_payment_start, pattern="^verify_")],
     states={
-        WAITING_PAYER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, payment_name_handler)],
+        WAITING_UTR: [MessageHandler(filters.TEXT & ~filters.COMMAND, utr_handler)],
         WAITING_PAYMENT_SCREENSHOT: [MessageHandler(filters.PHOTO, payment_screenshot_handler)]
     },
     fallbacks=[],
-    per_message=False  # Add this parameter to suppress warning
+    per_message=False
 )
 
 # ==================== BACKGROUND EVENT LOOP ====================
@@ -699,12 +679,10 @@ def home():
 
 # ==================== AUTOMATIC WEBHOOK SETUP ON STARTUP ====================
 def set_webhook_automatically():
-    """Set webhook automatically if running on Render (RENDER_EXTERNAL_URL is set)."""
     external_url = os.environ.get("RENDER_EXTERNAL_URL")
     if external_url:
         webhook_url = external_url.rstrip('/') + '/webhook'
         logging.info(f"Setting webhook to {webhook_url}")
-        # Use asyncio to run the webhook setting in the background loop
         async def _set():
             await telegram_app.bot.set_webhook(url=webhook_url)
             logging.info("Webhook set successfully")
@@ -712,7 +690,6 @@ def set_webhook_automatically():
     else:
         logging.info("RENDER_EXTERNAL_URL not set, skipping automatic webhook setup")
 
-# Run after the bot is initialized
 set_webhook_automatically()
 
 if __name__ == '__main__':
