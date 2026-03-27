@@ -19,7 +19,7 @@ print("Imports OK", flush=True)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-ADMIN_IDS = [8778422236]  # Replace with your Telegram user ID
+ADMIN_IDS = [7515220054]  # Replace with your Telegram user ID
 
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -52,7 +52,7 @@ MAX_QUANTITY = 5
 
 # Conversation states
 SELECTING_COUPON_TYPE, CUSTOM_QUANTITY = range(2)
-WAITING_UTR, WAITING_PAYMENT_SCREENSHOT = range(2, 4)  # renamed
+WAITING_UTR, WAITING_PAYMENT_SCREENSHOT = range(2, 4)
 
 # ==================== HELPER FUNCTIONS ====================
 def get_main_menu(user_id=None):
@@ -455,18 +455,22 @@ async def admin_accept_decline(update: Update, context: ContextTypes.DEFAULT_TYP
             f"✅ Payment accepted! Here are your codes:\n{codes_text}\n\nThanks for purchasing!"
         )
 
-        await query.edit_message_text(f"✅ Order {order_id} completed. Codes sent to user.")
-        await query.message.reply_text(f"You approved the payment for order {order_id}.")
+        # Edit the original admin message to remove buttons and show status
+        await query.edit_message_text(f"✅ Order {order_id} has been approved. Codes sent to user.")
+        # Send a separate confirmation to the admin
+        await query.message.reply_text(f"Order {order_id} approved by you.")
     else:  # decline
         supabase.table('orders').update({'status': 'declined'}).eq('order_id', order_id).execute()
         await context.bot.send_message(
             o['user_id'],
             "❌ Your payment has been declined by admin. If there is any issue, contact support."
         )
-        await query.edit_message_text(f"❌ Order {order_id} declined.")
-        await query.message.reply_text(f"You declined the payment for order {order_id}.")
+        # Edit the original admin message to remove buttons and show status
+        await query.edit_message_text(f"❌ Order {order_id} has been declined.")
+        # Send a separate confirmation to the admin
+        await query.message.reply_text(f"Order {order_id} declined by you.")
 
-# ==================== ADMIN MESSAGE HANDLER (unchanged) ====================
+# ==================== ADMIN MESSAGE HANDLER ====================
 async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
