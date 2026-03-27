@@ -59,14 +59,18 @@ SELECTING_COUPON_TYPE, CUSTOM_QUANTITY = range(2)
 WAITING_PAYER_NAME, WAITING_PAYMENT_SCREENSHOT = range(2, 4)
 
 # ==================== HELPER FUNCTIONS ====================
-def get_main_menu():
-    keyboard = [
+def get_main_menu(user_id=None):
+    # Base buttons for all users
+    buttons = [
         [KeyboardButton("🛒 Buy Vouchers")],
         [KeyboardButton("📦 My Orders")],
         [KeyboardButton("📜 Disclaimer")],
         [KeyboardButton("🆘 Support"), KeyboardButton("📢 Our Channels")]
     ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    # Add admin panel button if user is admin
+    if user_id and user_id in ADMIN_IDS:
+        buttons.append([KeyboardButton("🛠 Admin Panel")])
+    return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
 
 def get_agree_decline_keyboard():
     keyboard = [
@@ -99,7 +103,7 @@ def get_admin_panel_keyboard():
         [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast")],
         [InlineKeyboardButton("🕒 Last 10 Purchases", callback_data="admin_last10")],
         [InlineKeyboardButton("🖼 Update QR", callback_data="admin_qr")],
-        [InlineKeyboardButton(status_text, callback_data="admin_toggle")]   # <-- new toggle button
+        [InlineKeyboardButton(status_text, callback_data="admin_toggle")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -147,7 +151,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         price_val = price.data[0]['price_1'] if price.data else 'N/A'
         stock_msg += f"▫️ {ct} Off: {stock} left (₹{price_val})\n"
 
-    await update.message.reply_text(stock_msg, reply_markup=get_main_menu())
+    await update.message.reply_text(stock_msg, reply_markup=get_main_menu(user.id))
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
@@ -196,9 +200,12 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🆘 Support Contact:\n━━━━━━━━━━━━━━\n@Raunso_shein_bot")
     elif text == "📢 Our Channels":
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("@PROXY_LOOTERS", url="https://t.me/PROXY_LOOTERS")]
+            [InlineKeyboardButton("@VIPAMMER", url="https://t.me/VIPAMMER")]
         ])
         await update.message.reply_text("📢 Join our official channels for updates and deals:", reply_markup=keyboard)
+    elif text == "🛠 Admin Panel" and user.id in ADMIN_IDS:
+        # Show admin panel (inline keyboard)
+        await update.message.reply_text("Admin Panel", reply_markup=get_admin_panel_keyboard())
     else:
         await update.message.reply_text("Use the menu buttons.")
 
