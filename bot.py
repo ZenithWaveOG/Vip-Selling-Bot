@@ -468,13 +468,17 @@ async def admin_accept_decline(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
         await query.edit_message_text(f"✅ Order {order_id} completed. Codes sent to user.")
-    else:
+        # Confirmation for admin
+        await query.message.reply_text(f"You approved the payment for order {order_id}.")
+    else:  # decline
         supabase.table('orders').update({'status': 'declined'}).eq('order_id', order_id).execute()
         await context.bot.send_message(
             o['user_id'],
             "❌ Your payment has been declined by admin. If there is any issue, contact support."
         )
         await query.edit_message_text(f"❌ Order {order_id} declined.")
+        # Confirmation for admin
+        await query.message.reply_text(f"You declined the payment for order {order_id}.")
 
 # ==================== ADMIN MESSAGE HANDLER (for adding, removing, etc.) ====================
 async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
