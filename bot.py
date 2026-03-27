@@ -19,7 +19,7 @@ print("Imports OK", flush=True)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-ADMIN_IDS = [7515220054]  # Replace with your Telegram user ID
+ADMIN_IDS = [7522869983]  # Replace with your Telegram user ID
 
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -133,6 +133,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stock_msg += f"▫️ {ct} Off: {stock} left (₹{price_val})\n"
 
     await update.message.reply_text(stock_msg, reply_markup=get_main_menu(user.id))
+
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Command handler for /admin – shows admin reply keyboard."""
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("Unauthorized.")
+        return
+    await update.message.reply_text("Admin Panel", reply_markup=get_admin_reply_keyboard())
 
 async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
@@ -642,7 +649,7 @@ threading.Thread(target=start_background_loop, args=(bot_loop,), daemon=True).st
 telegram_app = Application.builder().token(TELEGRAM_TOKEN).build()
 
 telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(CommandHandler("admin", admin_panel))  # keep for compatibility
+telegram_app.add_handler(CommandHandler("admin", admin_panel))
 
 telegram_app.add_handler(conv_handler)
 telegram_app.add_handler(payment_conv_handler)
