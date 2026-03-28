@@ -67,8 +67,8 @@ async def reset_conversation_state(context: ContextTypes.DEFAULT_TYPE, user_id: 
         context.user_data.pop('price_per', None)
     if 'total' in context.user_data:
         context.user_data.pop('total', None)
-    # Clear any other temporary data
-    for key in ['verify_order_id', 'utr_number', 'screenshot_file_id', 'broadcast', 'awaiting_qr', 'admin_action']:
+    # Clear any other temporary data but preserve admin_action if present
+    for key in ['verify_order_id', 'utr_number', 'screenshot_file_id', 'broadcast', 'awaiting_qr']:
         if key in context.user_data:
             context.user_data.pop(key, None)
 
@@ -162,9 +162,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = update.message.text
 
-    # Reset conversation state when user clicks any menu button
-    await reset_conversation_state(context, user.id)
-
+    # IMPORTANT: Check if admin is in middle of an action FIRST
     if user.id in ADMIN_IDS and (
         'admin_action' in context.user_data or
         context.user_data.get('broadcast') or
@@ -172,6 +170,9 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ):
         await admin_message_handler(update, context)
         return
+
+    # Only reset conversation state for regular users or when not in admin action
+    await reset_conversation_state(context, user.id)
 
     if text == "🛒 Buy Vouchers":
         terms = (
@@ -213,7 +214,11 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE, option: str):
     if option == "➕ Add Coupon":
-        context.user_data.clear()
+        # Clear any existing admin_action first
+        context.user_data.pop('admin_action', None)
+        context.user_data.pop('broadcast', None)
+        context.user_data.pop('awaiting_qr', None)
+        # Show coupon type selection
         await update.message.reply_text("Select coupon type to add:", reply_markup=get_coupon_type_admin_keyboard('add'))
     elif option == "➖ Remove Coupon":
         context.user_data.clear()
@@ -539,11 +544,13 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("Please send the coupon codes as text.")
                 return
             codes = text.strip().split('\n')
+            added = 0
             for code in codes:
                 code = code.strip()
                 if code:
                     supabase.table('coupons').insert({'code': code, 'type': ctype}).execute()
-            await update.message.reply_text(f"Coupons added successfully to {ctype} Off.", reply_markup=get_admin_reply_keyboard())
+                    added += 1
+            await update.message.reply_text(f"✅ Added {added} coupons to {ctype} Off.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
         elif action[0] == 'remove':
@@ -554,7 +561,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 ids = [c['id'] for c in coupons.data]
                 if ids:
                     supabase.table('coupons').delete().in_('id', ids).execute()
-                await update.message.reply_text(f"Removed {len(ids)} coupons from {ctype} Off.", reply_markup=get_admin_reply_keyboard())
+                await update.message.reply_text(f"✅ Removed {len(ids)} coupons from {ctype} Off.", reply_markup=get_admin_reply_keyboard())
             except:
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
@@ -585,7 +592,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 new_price = int(text)
                 col = f"price_{qty}"
                 supabase.table('prices').update({col: new_price}).eq('coupon_type', ctype).execute()
-                await update.message.reply_text(f"Price updated for {ctype} Off, {qty} Qty: ₹{new_price}", reply_markup=get_admin_reply_keyboard())
+                await update.message.reply_text(f"✅ Price updated for {ctype} Off, {qty} Qty: ₹{new_price}", reply_markup=get_admin_reply_keyboard())
             except:
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
@@ -600,11 +607,13 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = query.data
 
+    # Clear any existing pending states
     context.user_data.pop('broadcast', None)
     context.user_data.pop('awaiting_qr', None)
 
     if data.startswith('admin_add_'):
         ctype = data.split('_')[2]
+        # Clear user_data and set only the admin_action
         context.user_data.clear()
         context.user_data['admin_action'] = ('add', ctype)
         await query.edit_message_text(f"Send the coupon codes for {ctype} Off (one per line):")
