@@ -55,6 +55,23 @@ SELECTING_COUPON_TYPE, CUSTOM_QUANTITY = range(2)
 WAITING_UTR, WAITING_PAYMENT_SCREENSHOT = range(2, 4)
 
 # ==================== HELPER FUNCTIONS ====================
+async def reset_conversation_state(context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    """Reset conversation state for a user"""
+    if 'coupon_type' in context.user_data:
+        context.user_data.pop('coupon_type', None)
+    if 'order_id' in context.user_data:
+        context.user_data.pop('order_id', None)
+    if 'qty' in context.user_data:
+        context.user_data.pop('qty', None)
+    if 'price_per' in context.user_data:
+        context.user_data.pop('price_per', None)
+    if 'total' in context.user_data:
+        context.user_data.pop('total', None)
+    # Clear any other temporary data
+    for key in ['verify_order_id', 'utr_number', 'screenshot_file_id', 'broadcast', 'awaiting_qr', 'admin_action']:
+        if key in context.user_data:
+            context.user_data.pop(key, None)
+
 def get_main_menu(user_id=None):
     buttons = [
         [KeyboardButton("🛒 Buy Vouchers")],
@@ -144,6 +161,9 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     user = update.effective_user
     text = update.message.text
+
+    # Reset conversation state when user clicks any menu button
+    await reset_conversation_state(context, user.id)
 
     if user.id in ADMIN_IDS and (
         'admin_action' in context.user_data or
@@ -245,6 +265,8 @@ async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "agree_terms":
         await query.edit_message_text("🛒 Select a coupon type:", reply_markup=get_coupon_type_keyboard())
     else:
+        # Reset state when user declines
+        await reset_conversation_state(context, update.effective_user.id)
         await query.edit_message_text("Thanks for using the bot. Goodbye!")
 
 async def coupon_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -266,6 +288,8 @@ async def coupon_type_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return ConversationHandler.END
+    
+    # Check if message is actually a number
     try:
         qty = int(update.message.text)
         if qty <= 0:
@@ -276,6 +300,7 @@ async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
         ctype = context.user_data.get('coupon_type')
         if not ctype:
             await update.message.reply_text("Error: coupon type not set. Please start over.")
+            await reset_conversation_state(context, update.effective_user.id)
             return ConversationHandler.END
         count = supabase.table('coupons').select('*', count='exact').eq('type', ctype).eq('is_used', False).execute()
         stock = count.count if hasattr(count, 'count') else 0
@@ -283,9 +308,19 @@ async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text(f"❌ Only {stock} codes available. Please enter a lower quantity (1-{MAX_QUANTITY}):")
             return CUSTOM_QUANTITY
         await process_quantity(update, context, qty)
-    except:
-        await update.message.reply_text("Invalid number. Please enter a valid quantity (1-5):")
-        return CUSTOM_QUANTITY
+    except ValueError:
+        # If the input is not a number, check if it's a menu button
+        text = update.message.text
+        menu_buttons = ["🛒 Buy Vouchers", "📦 My Orders", "📜 Disclaimer", "🆘 Support", "📢 Our Channels", "🛠 Admin Panel"]
+        admin_buttons = ["➕ Add Coupon", "➖ Remove Coupon", "📊 Stock", "🎁 Get Free Code", "💰 Change Prices", "📢 Broadcast", "🕒 Last 10 Purchases", "🖼 Update QR", "🔛 Turn Off", "🔴 Turn On"]
+        
+        if text in menu_buttons or (update.effective_user.id in ADMIN_IDS and text in admin_buttons):
+            await reset_conversation_state(context, update.effective_user.id)
+            await menu_handler(update, context)
+            return ConversationHandler.END
+        else:
+            await update.message.reply_text("Invalid number. Please enter a valid quantity (1-5):")
+            return CUSTOM_QUANTITY
     return ConversationHandler.END
 
 async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, qty):
