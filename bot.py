@@ -99,7 +99,10 @@ def get_agree_decline_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_coupon_type_keyboard():
-    keyboard = [InlineKeyboardButton(get_coupon_display_name(ct), callback_data=f"ctype_{ct}")]
+    keyboard = [
+        [InlineKeyboardButton(get_coupon_display_name(ct), callback_data=f"ctype_{ct}")]
+        for ct in COUPON_TYPES
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 def generate_order_id():
