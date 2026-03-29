@@ -222,7 +222,7 @@ async def menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(disclaimer)
     elif text == "🆘 Support":
-        await update.message.reply_text("🆘 Support Contact:\n━━━━━━━━━━━━━━\n@Raunso_shein_bot")
+        await update.message.reply_text("🆘 Support Contact:\n━━━━━━━━━━━━━━\n@VIIP_SUPPORT_BOT")
     elif text == "📢 Our Channels":
         keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("@VIPAMMER", url="https://t.me/VIPAMMER")]])
         await update.message.reply_text("📢 Join our official channels for updates and deals:", reply_markup=keyboard)
