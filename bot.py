@@ -253,7 +253,7 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.clear()
         await update.message.reply_text("Select coupon type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
     elif option == "📊 Stock":
-        BOT_USERNAME = "@YourBotUsername"  # 👈 yaha apna bot username daal
+        BOT_USERNAME = "@VIIP_SELLING_BOT"  # 👈 yaha apna bot username daal
 
         msg = "✏️ VIP Coupon SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
 
