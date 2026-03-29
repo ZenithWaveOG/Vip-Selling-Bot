@@ -283,7 +283,6 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"   {status_emoji} {o['status'].upper()}\n"
                     f"   🕒 {o['created_at'][:16]}\n\n"
                 )
-                        await update.message.reply_text(msg, reply_markup=get_admin_reply_keyboard())
     elif option == "🖼 Update QR":
         context.user_data.clear()
         context.user_data['awaiting_qr'] = True
