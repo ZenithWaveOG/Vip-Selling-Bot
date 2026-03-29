@@ -15,23 +15,27 @@ from supabase import create_client, Client
 
 print("Imports OK", flush=True)
 
-# ==================== CONFIG ====================
+# ==================== CONFIG & CONSTANTS ====================
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-ADMIN_IDS = [8778422236]  # Replace with your Telegram user ID
+ADMIN_IDS = [7522869983] 
 
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# ---------- Initialize settings (bot_status, etc.) ----------
+# Move these UP so the functions can see them
+COUPON_TYPES = ['S01', 'SHEINVERSE_1K']
+MAX_QUANTITY = 5
+
+# ==================== INITIALIZATION FUNCTIONS ====================
 def init_settings():
     status = supabase.table('settings').select('*').eq('key', 'bot_status').execute()
     if not status.data:
         supabase.table('settings').insert({'key': 'bot_status', 'value': 'on'}).execute()
-init_settings()
 
 def init_prices():
+    # This now works because COUPON_TYPES is defined above
     for ct in COUPON_TYPES:
         existing = supabase.table('prices').select('*').eq('coupon_type', ct).execute()
         if not existing.data:
@@ -42,8 +46,10 @@ def init_prices():
                 'price_10': 85,
                 'price_20': 160
             }).execute()
-init_prices()
 
+# Now call them
+init_settings()
+init_prices()
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
