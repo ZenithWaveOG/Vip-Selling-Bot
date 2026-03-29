@@ -32,15 +32,16 @@ def init_settings():
 init_settings()
 
 def init_prices():
-    existing = supabase.table('prices').select('*').eq('coupon_type', 'S01').execute()
-    if not existing.data:
-        supabase.table('prices').insert({
-            'coupon_type': 'S01',
-            'price_1': 10,
-            'price_5': 45,
-            'price_10': 85,
-            'price_20': 160
-        }).execute()
+    for ct in COUPON_TYPES:
+        existing = supabase.table('prices').select('*').eq('coupon_type', ct).execute()
+        if not existing.data:
+            supabase.table('prices').insert({
+                'coupon_type': ct,
+                'price_1': 10,
+                'price_5': 45,
+                'price_10': 85,
+                'price_20': 160
+            }).execute()
 init_prices()
 
 # Setup logging
