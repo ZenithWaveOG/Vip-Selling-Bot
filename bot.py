@@ -47,7 +47,7 @@ init_prices()
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # ==================== CONSTANTS ====================
-COUPON_TYPES = ['S01']
+COUPON_TYPES = ['S01', 'SHEINVERSE_1K']
 MAX_QUANTITY = 5
 
 # Conversation states
@@ -58,6 +58,13 @@ WAITING_UTR, WAITING_PAYMENT_SCREENSHOT = range(2, 4)
 WAITING_BLOCK_USERNAME, WAITING_UNBLOCK_USERNAME = range(4, 6)
 
 # ==================== HELPER FUNCTIONS ====================
+def get_coupon_display_name(ct):
+    if ct == "S01":
+        return "S01 Off (Out Of Sheinverse)"
+    elif ct == "SHEINVERSE_1K":
+        return "1K Sheinverse"
+    return ct
+
 def get_main_menu(user_id=None):
     buttons = [
         [KeyboardButton("🛒 Buy Vouchers")],
@@ -92,14 +99,14 @@ def get_agree_decline_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_coupon_type_keyboard():
-    keyboard = [[InlineKeyboardButton(f"{ct} Off", callback_data=f"ctype_{ct}")] for ct in COUPON_TYPES]
+    keyboard = [InlineKeyboardButton(get_coupon_display_name(ct), callback_data=f"ctype_{ct}")]
     return InlineKeyboardMarkup(keyboard)
 
 def generate_order_id():
     return 'ORD' + ''.join(random.choices(string.digits, k=14))
 
 def get_coupon_type_admin_keyboard(action):
-    keyboard = [[InlineKeyboardButton(f"{ct} Off", callback_data=f"admin_{action}_{ct}")] for ct in COUPON_TYPES]
+    keyboard = [InlineKeyboardButton(get_coupon_display_name(ct), callback_data=f"admin_{action}_{ct}")]
     return InlineKeyboardMarkup(keyboard)
 
 async def update_user_activity(user_id):
@@ -164,7 +171,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stock = count.count if hasattr(count, 'count') else 0
         price = supabase.table('prices').select('price_1').eq('coupon_type', ct).execute()
         price_val = price.data[0]['price_1'] if price.data else 'N/A'
-        stock_msg += f"▫️ {ct} Off: {stock} left (₹{price_val})\n"
+        stock_msg += f"▫️ {get_coupon_display_name(ct)}: {stock} left (₹{price_val})\n"
 
     await update.message.reply_text(stock_msg, reply_markup=get_main_menu(user.id))
 
@@ -246,11 +253,17 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.clear()
         await update.message.reply_text("Select coupon type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
     elif option == "📊 Stock":
-        msg = "Current Stock:\n"
+        msg = "✏️ VIP Coupon SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
+
         for ct in COUPON_TYPES:
             count = supabase.table('coupons').select('*', count='exact').eq('type', ct).eq('is_used', False).execute()
             stock = count.count if hasattr(count, 'count') else 0
-            msg += f"{ct} Off: {stock}\n"
+        
+            price = supabase.table('prices').select('price_1').eq('coupon_type', ct).execute()
+            price_val = price.data[0]['price_1'] if price.data else 'N/A'
+        
+            msg += f"▫️ {get_coupon_display_name(ct)}: {stock} left (₹{price_val})\n"
+
         await update.message.reply_text(msg, reply_markup=get_admin_reply_keyboard())
     elif option == "🎁 Get Free Code":
         context.user_data.clear()
@@ -575,7 +588,7 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, q
     invoice_text = (
         f"🧾 INVOICE\n━━━━━━━━━━━━━━\n"
         f"🆔 {order_id}\n"
-        f"📦 {ctype} Off (x{qty})\n"
+        f"📦 {get_coupon_display_name(ctype)} (x{qty})\n"
         f"💰 Pay Exactly: ₹{total}\n"
         f"⚠️ CRITICAL: You MUST pay exact amount. Do not ignore the paise (decimals), or the bot will NOT find your payment!\n\n"
         f"⏳ QR valid for 10 minutes."
@@ -630,7 +643,7 @@ async def payment_screenshot_handler(update: Update, context: ContextTypes.DEFAU
         f"User: {user_mention} (ID: {update.effective_user.id})\n"
         f"UTR Number: {utr_number}\n"
         f"Order: {o['order_id']}\n"
-        f"Type: {o['coupon_type']} x{o['quantity']}\n"
+        f"🎟 {get_coupon_display_name(o['coupon_type'])} × {o['quantity']}\n"
         f"Total: ₹{o['total_price']}\n\n"
         f"Accept or Decline?"
     )
