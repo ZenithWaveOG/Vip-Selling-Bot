@@ -264,11 +264,12 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Send the message you want to broadcast to all users:")
     elif option == "🕒 Last 10 Purchases":
         orders = supabase.table('orders').select('*').order('created_at', desc=True).limit(10).execute()
+    
         if not orders.data:
             await update.message.reply_text("No orders yet.")
         else:
             msg = "🕒 LAST 10 PURCHASES\n━━━━━━━━━━━━━━\n\n"
-
+    
             for i, o in enumerate(orders.data, start=1):
                 user = supabase.table('users').select('username').eq('user_id', o['user_id']).execute()
                 username = user.data[0]['username'] if user.data and user.data[0]['username'] else "NoUsername"
@@ -283,6 +284,8 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
                     f"   {status_emoji} {o['status'].upper()}\n"
                     f"   🕒 {o['created_at'][:16]}\n\n"
                 )
+    
+            await update.message.reply_text(msg, reply_markup=get_admin_reply_keyboard())
     elif option == "🖼 Update QR":
         context.user_data.clear()
         context.user_data['awaiting_qr'] = True
