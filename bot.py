@@ -253,16 +253,23 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.clear()
         await update.message.reply_text("Select coupon type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
     elif option == "📊 Stock":
+        BOT_USERNAME = "@YourBotUsername"  # 👈 yaha apna bot username daal
+
         msg = "✏️ VIP Coupon SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
 
         for ct in COUPON_TYPES:
             count = supabase.table('coupons').select('*', count='exact').eq('type', ct).eq('is_used', False).execute()
             stock = count.count if hasattr(count, 'count') else 0
-        
+
             price = supabase.table('prices').select('price_1').eq('coupon_type', ct).execute()
             price_val = price.data[0]['price_1'] if price.data else 'N/A'
-        
-            msg += f"▫️ {get_coupon_display_name(ct)}: {stock} left (₹{price_val})\n"
+
+            # 👇 Special condition for 1K Sheinverse
+            if ct == "SHEINVERSE_1K":
+                msg += f"▫️ {get_coupon_display_name(ct)}: {stock} left (₹{price_val})\n"
+                msg += f"   🤖 Buy from: {BOT_USERNAME}\n"
+            else:
+                msg += f"▫️ {get_coupon_display_name(ct)}: {stock} left (₹{price_val})\n"
 
         await update.message.reply_text(msg, reply_markup=get_admin_reply_keyboard())
     elif option == "🎁 Get Free Code":
@@ -816,7 +823,10 @@ telegram_app.add_handler(conv_handler)
 telegram_app.add_handler(payment_conv_handler)
 
 telegram_app.add_handler(CallbackQueryHandler(terms_callback, pattern="^(agree|decline)_terms$"))
-telegram_app.add_handler(CallbackQueryHandler(admin_accept_decline, pattern="^(accept|decline)_"))
+
+# 🔥 FIX: admin handler ka pattern change karo
+telegram_app.add_handler(CallbackQueryHandler(admin_accept_decline, pattern="^(accept|decline)_[A-Z0-9]+$"))
+
 telegram_app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
