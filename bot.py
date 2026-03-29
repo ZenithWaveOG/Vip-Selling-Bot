@@ -13,44 +13,36 @@ from telegram.ext import (
 )
 from supabase import create_client, Client
 
-# ==================== CONFIG & CONSTANTS ====================
+print("Imports OK", flush=True)
+
+# ==================== CONFIG ====================
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-ADMIN_IDS = [8778422236] 
+ADMIN_IDS = [8778422236]  # Replace with your Telegram user ID
 
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Define these BEFORE the init functions
-COUPON_TYPES = ['S01', 'SHEINVERSE_1K']
-MAX_QUANTITY = 5
-
-# ==================== INITIALIZATION ====================
+# ---------- Initialize settings (bot_status, etc.) ----------
 def init_settings():
-    try:
-        status = supabase.table('settings').select('*').eq('key', 'bot_status').execute()
-        if not status.data:
-            supabase.table('settings').insert({'key': 'bot_status', 'value': 'on'}).execute()
-    except Exception as e:
-        print(f"Init Settings Error: {e}")
+    status = supabase.table('settings').select('*').eq('key', 'bot_status').execute()
+    if not status.data:
+        supabase.table('settings').insert({'key': 'bot_status', 'value': 'on'}).execute()
+init_settings()
 
 def init_prices():
-    for ct in COUPON_TYPES:
-        try:
-            existing = supabase.table('prices').select('*').eq('coupon_type', ct).execute()
-            if not existing.data:
-                supabase.table('prices').insert({
-                    'coupon_type': ct,
-                    'price_1': 10,
-                    'price_5': 45,
-                    'price_10': 85,
-                    'price_20': 160
-                }).execute()
-        except Exception as e:
-            print(f"Init Prices Error for {ct}: {e}")
-
-init_settings()
+    # Ensure BOTH S01 and SHEINVERSE_1K have default price rows so updates don't fail silently
+    for ct in ['S01', 'SHEINVERSE_1K']:
+        existing = supabase.table('prices').select('*').eq('coupon_type', ct).execute()
+        if not existing.data:
+            supabase.table('prices').insert({
+                'coupon_type': ct,
+                'price_1': 10,
+                'price_5': 45,
+                'price_10': 85,
+                'price_20': 160
+            }).execute()
 init_prices()
 
 # Setup logging
@@ -58,7 +50,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # ==================== CONSTANTS ====================
 COUPON_TYPES = ['S01', 'SHEINVERSE_1K']
-MAX_QUANTITY = 5
+MAX_QUANTITY = 20 # Updated to 20 to allow bulk buying according to price tiers
 
 # Conversation states
 SELECTING_COUPON_TYPE, CUSTOM_QUANTITY = range(2)
@@ -269,7 +261,7 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.clear()
         await update.message.reply_text("Select coupon type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
     elif option == "📊 Stock":
-        BOT_USERNAME = "@VIIP_SELLING_BOT"  # 👈 yaha apna bot username daal
+        BOT_USERNAME = "@VIIP_SELLING_BOT"  
 
         msg = "✏️ VIP Coupon SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
 
@@ -280,7 +272,6 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
             price = supabase.table('prices').select('price_1').eq('coupon_type', ct).execute()
             price_val = price.data[0]['price_1'] if price.data else 'N/A'
 
-            # 👇 Special condition for 1K Sheinverse
             if ct == "SHEINVERSE_1K":
                 msg += f"▫️ {get_coupon_display_name(ct)}: {stock} left (₹{price_val})\n"
                 msg += f"   🤖 Buy from: {BOT_USERNAME}\n"
@@ -455,23 +446,25 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
         context.user_data.pop('unblock_username', None)
         return
 
-    # Handle admin actions (add, remove, free, price)
+    # Handle admin actions (add, remove, free, price, price_all)
     if 'admin_action' in context.user_data:
         action = context.user_data['admin_action']
-            if action[0] == 'add':
-                ctype = action[1]
-                if not text:
-                    await update.message.reply_text("Please send codes.")
-                    return
-                codes = text.strip().split('\n')
-                for code in codes:
-                    if code.strip():
-                        supabase.table('coupons').insert({'code': code.strip(), 'type': ctype, 'is_used': False}).execute()
-
-               # Show updated stock immediately
-                count = supabase.table('coupons').select('*', count='exact').eq('type', ctype).eq('is_used', False).execute()
-                await update.message.reply_text(f"✅ Added {len(codes)} codes to {ctype}.\nNew Stock: {count.count}", reply_markup=get_admin_reply_keyboard())
-                context.user_data.pop('admin_action', None)
+        
+        if action[0] == 'add':
+            ctype = action[1]
+            if not text:
+                await update.message.reply_text("Please send the coupon codes as text.")
+                return
+            codes = text.strip().split('\n')
+            added_count = 0
+            for code in codes:
+                code = code.strip()
+                if code:
+                    # Explicitly insert as unused so stock updates immediately
+                    supabase.table('coupons').insert({'code': code, 'type': ctype, 'is_used': False}).execute()
+                    added_count += 1
+            await update.message.reply_text(f"✅ {added_count} Coupons added successfully to {ctype}.", reply_markup=get_admin_reply_keyboard())
+            context.user_data.pop('admin_action', None)
 
         elif action[0] == 'remove':
             ctype = action[1]
@@ -481,7 +474,7 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 ids = [c['id'] for c in coupons.data]
                 if ids:
                     supabase.table('coupons').delete().in_('id', ids).execute()
-                await update.message.reply_text(f"Removed {len(ids)} coupons from {ctype} Off.", reply_markup=get_admin_reply_keyboard())
+                await update.message.reply_text(f"Removed {len(ids)} coupons from {ctype}.", reply_markup=get_admin_reply_keyboard())
             except:
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
@@ -504,26 +497,37 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
             except:
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
- 
-        # FIXED: Global Price Update (One number sets all)
+
         elif action[0] == 'price':
             ctype = action[1]
+            qty = action[2]
             try:
-                base_price = int(text)
-                # This updates ALL quantity columns at once for that coupon type
-                supabase.table('prices').update({
-                    'price_1': base_price,
-                    'price_5': base_price * 4,   # or just 'base_price' if you want no discount
-                    'price_10': base_price * 8,
-                    'price_20': base_price * 15
-                }).eq('coupon_type', ctype).execute()
-                
-                await update.message.reply_text(f"✅ Prices updated for {ctype}!\n1 Qty: ₹{base_price}\n5 Qty: ₹{base_price*4}", reply_markup=get_admin_reply_keyboard())
+                new_price = int(text)
+                col = f"price_{qty}"
+                supabase.table('prices').update({col: new_price}).eq('coupon_type', ctype).execute()
+                await update.message.reply_text(f"Price updated for {ctype}, {qty} Qty: ₹{new_price}", reply_markup=get_admin_reply_keyboard())
             except:
-                await update.message.reply_text("❌ Invalid number.")
+                await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
+            context.user_data.pop('admin_action', None)
+            
+        elif action[0] == 'price_all':
+            ctype = action[1]
+            try:
+                new_price = int(text)
+                # Apply the single price to all 4 quantity columns at once
+                supabase.table('prices').update({
+                    'price_1': new_price,
+                    'price_5': new_price,
+                    'price_10': new_price,
+                    'price_20': new_price
+                }).eq('coupon_type', ctype).execute()
+                await update.message.reply_text(f"✅ Global Price updated for {ctype}. All quantities (1, 5, 10, 20) now cost ₹{new_price}", reply_markup=get_admin_reply_keyboard())
+            except Exception as e:
+                logging.error(f"Failed to update global price: {e}")
+                await update.message.reply_text("❌ Invalid number. Please enter a valid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
-# ==================== REST OF THE BOT (unchanged from previous version) ====================
+# ==================== REST OF THE BOT ====================
 async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
@@ -545,7 +549,7 @@ async def coupon_type_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     count = supabase.table('coupons').select('*', count='exact').eq('type', ctype).eq('is_used', False).execute()
     stock = count.count if hasattr(count, 'count') else 0
     await query.edit_message_text(
-        f"🏷️ {ctype} Off\n📦 Available stock: {stock}\n\n"
+        f"🏷️ {ctype}\n📦 Available stock: {stock}\n\n"
         f"Please enter the quantity (maximum {MAX_QUANTITY}):"
     )
     return CUSTOM_QUANTITY
@@ -571,7 +575,7 @@ async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
             return CUSTOM_QUANTITY
         await process_quantity(update, context, qty)
     except:
-        await update.message.reply_text("Invalid number. Please enter a valid quantity (1-5):")
+        await update.message.reply_text(f"Invalid number. Please enter a valid quantity (1-{MAX_QUANTITY}):")
         return CUSTOM_QUANTITY
     return ConversationHandler.END
 
@@ -580,12 +584,12 @@ async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, q
     count = supabase.table('coupons').select('*', count='exact').eq('type', ctype).eq('is_used', False).execute()
     stock = count.count if hasattr(count, 'count') else 0
     if stock < qty:
-        await (update.message or update.callback_query.message).reply_text(f"❌ Only {stock} codes available for {ctype} Off.")
+        await (update.message or update.callback_query.message).reply_text(f"❌ Only {stock} codes available for {ctype}.")
         return
 
     prices = supabase.table('prices').select('*').eq('coupon_type', ctype).execute()
     if not prices.data:
-        await (update.message or update.callback_query.message).reply_text("Price error.")
+        await (update.message or update.callback_query.message).reply_text("Price error. Please contact admin.")
         return
     p = prices.data[0]
     if qty <= 1:
@@ -778,33 +782,39 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ctype = data.split('_')[2]
         context.user_data.clear()
         context.user_data['admin_action'] = ('add', ctype)
-        await query.edit_message_text(f"Send the coupon codes for {ctype} Off (one per line):")
+        await query.edit_message_text(f"Send the coupon codes for {ctype} (one per line):")
     elif data.startswith('admin_remove_'):
         ctype = data.split('_')[2]
         context.user_data.clear()
         context.user_data['admin_action'] = ('remove', ctype)
-        await query.edit_message_text(f"How many codes to remove from {ctype} Off? (send a number)")
+        await query.edit_message_text(f"How many codes to remove from {ctype}? (send a number)")
     elif data.startswith('admin_free_'):
         ctype = data.split('_')[2]
         context.user_data.clear()
         context.user_data['admin_action'] = ('free', ctype)
-        await query.edit_message_text(f"How many free codes from {ctype} Off? (send a number)")
+        await query.edit_message_text(f"How many free codes from {ctype}? (send a number)")
     elif data.startswith('admin_prices_'):
         ctype = data.split('_')[2]
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("1 Qty", callback_data=f"admin_price_qty_{ctype}_1")],
-            [InlineKeyboardButton("5 Qty", callback_data=f"admin_price_qty_{ctype}_5")],
-            [InlineKeyboardButton("10 Qty", callback_data=f"admin_price_qty_{ctype}_10")],
-            [InlineKeyboardButton("20 Qty", callback_data=f"admin_price_qty_{ctype}_20")]
-        ])
-        await query.edit_message_text(f"Select quantity for {ctype} Off price change:", reply_markup=keyboard)
+        # 👇 The special logic for 1k Sheinverse price update 👇
+        if ctype == "SHEINVERSE_1K":
+            context.user_data.clear()
+            context.user_data['admin_action'] = ('price_all', ctype)
+            await query.edit_message_text(f"💰 Enter a single NEW price for {ctype}.\n\n(This will automatically update 1, 5, 10, and 20 quantities to this exact price):")
+        else:
+            keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton("1 Qty", callback_data=f"admin_price_qty_{ctype}_1")],
+                [InlineKeyboardButton("5 Qty", callback_data=f"admin_price_qty_{ctype}_5")],
+                [InlineKeyboardButton("10 Qty", callback_data=f"admin_price_qty_{ctype}_10")],
+                [InlineKeyboardButton("20 Qty", callback_data=f"admin_price_qty_{ctype}_20")]
+            ])
+            await query.edit_message_text(f"Select quantity for {ctype} price change:", reply_markup=keyboard)
     elif data.startswith('admin_price_qty_'):
         parts = data.split('_')
         ctype = parts[3]
         qty = parts[4]
         context.user_data.clear()
         context.user_data['admin_action'] = ('price', ctype, qty)
-        await query.edit_message_text(f"Enter new price for {ctype} Off, {qty} Qty:")
+        await query.edit_message_text(f"Enter new price for {ctype}, {qty} Qty:")
     else:
         await query.edit_message_text("Unknown action.")
 
