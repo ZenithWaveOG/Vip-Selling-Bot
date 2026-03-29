@@ -19,7 +19,7 @@ print("Imports OK", flush=True)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-ADMIN_IDS = [7522869983]  # Replace with your Telegram user ID
+ADMIN_IDS = [8778422236]  # Replace with your Telegram user ID
 
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -109,7 +109,10 @@ def generate_order_id():
     return 'ORD' + ''.join(random.choices(string.digits, k=14))
 
 def get_coupon_type_admin_keyboard(action):
-    keyboard = [InlineKeyboardButton(get_coupon_display_name(ct), callback_data=f"admin_{action}_{ct}")]
+    keyboard = [
+        [InlineKeyboardButton(get_coupon_display_name(ct), callback_data=f"admin_{action}_{ct}")]
+        for ct in COUPON_TYPES
+    ]
     return InlineKeyboardMarkup(keyboard)
 
 async def update_user_activity(user_id):
@@ -827,10 +830,9 @@ telegram_app.add_handler(payment_conv_handler)
 
 telegram_app.add_handler(CallbackQueryHandler(terms_callback, pattern="^(agree|decline)_terms$"))
 
-# 🔥 FIX: admin handler ka pattern change karo
-telegram_app.add_handler(CallbackQueryHandler(admin_accept_decline, pattern="^(accept|decline)_[A-Z0-9]+$"))
-
 telegram_app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
+
+telegram_app.add_handler(CallbackQueryHandler(admin_accept_decline, pattern="^(accept|decline)_[A-Z0-9]+$"))
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
