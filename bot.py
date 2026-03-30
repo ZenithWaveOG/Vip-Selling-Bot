@@ -538,14 +538,14 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
                 await update.message.reply_text("Invalid number.", reply_markup=get_admin_reply_keyboard())
             context.user_data.pop('admin_action', None)
 
-# ==================== REST OF THE BOT (unchanged from previous version) ====================
+# ==================== REST OF THE BOT ====================
 async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
     query = update.callback_query
     await query.answer()
     if query.data == "agree_terms":
-        reset_user_flow(context)  # 🔥 ADD THIS
+        reset_user_flow(context)
         await query.edit_message_text("🛒 Select a coupon type:", reply_markup=get_coupon_type_keyboard())
     else:
         await query.edit_message_text("Thanks for using the bot. Goodbye!")
@@ -557,7 +557,6 @@ async def coupon_type_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
 
-    # 🔥 RESET OLD FLOW
     reset_user_flow(context)
 
     ctype = query.data.split('_')[1]
@@ -566,13 +565,11 @@ async def coupon_type_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     count = supabase.table('coupons').select('*', count='exact').eq('type', ctype).eq('is_used', False).execute()
     stock = count.count if hasattr(count, 'count') else 0
 
-    # 🔥 Custom Name
     if ctype == "1K":
         name = "1K Sheinverse"
     else:
         name = f"{ctype} Off"
 
-    # Add a cancel button to the quantity prompt
     cancel_keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data="cancel_quantity")]
     ])
@@ -621,15 +618,14 @@ async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text(f"❌ Only {stock} codes available. Please enter a lower quantity (1-{MAX_QUANTITY}):")
             return CUSTOM_QUANTITY
         await process_quantity(update, context, qty)
+        return ConversationHandler.END   # <-- CRITICAL FIX
     except ValueError:
-        # 🔥 check if user switched flow
         if 'coupon_type' not in context.user_data:
             await update.message.reply_text("Session expired. Please select voucher again.")
             return ConversationHandler.END
 
         await update.message.reply_text("Invalid number. Please enter a valid quantity (1-5):")
         return CUSTOM_QUANTITY
-        return ConversationHandler.END
 
 async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, qty):
     ctype = context.user_data['coupon_type']
@@ -905,7 +901,7 @@ telegram_app.add_handler(payment_conv_handler)
 telegram_app.add_handler(CallbackQueryHandler(terms_callback, pattern="^(agree|decline)_terms$"))
 telegram_app.add_handler(CallbackQueryHandler(admin_accept_decline, pattern="^(accept|decline)_"))
 telegram_app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
-telegram_app.add_handler(CallbackQueryHandler(cancel_quantity_callback, pattern="^cancel_quantity$"))  # NEW
+telegram_app.add_handler(CallbackQueryHandler(cancel_quantity_callback, pattern="^cancel_quantity$"))
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
