@@ -96,17 +96,21 @@ def get_agree_decline_keyboard():
 
 def get_coupon_type_keyboard():
     keyboard = []
-for ct in COUPON_TYPES:
-    if ct == "S01":
-        name = "S01 Off"
-    elif ct == "1K":
-        name = "1K Sheinverse"
-    else:
-        name = ct
 
-    keyboard.append([InlineKeyboardButton(name, callback_data=f"ctype_{ct}")])
+    for ct in COUPON_TYPES:
+        if ct == "S01":
+            name = "S01 Off"
+        elif ct == "1K":
+            name = "1K Sheinverse"
+        else:
+            name = ct
+
+        keyboard.append([
+            InlineKeyboardButton(name, callback_data=f"ctype_{ct}")
+        ])
+
     return InlineKeyboardMarkup(keyboard)
-
+    
 def generate_order_id():
     return 'ORD' + ''.join(random.choices(string.digits, k=14))
 
