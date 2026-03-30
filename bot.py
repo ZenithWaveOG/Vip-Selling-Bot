@@ -32,22 +32,25 @@ def init_settings():
 init_settings()
 
 def init_prices():
-    existing = supabase.table('prices').select('*').eq('coupon_type', 'S01').execute()
-    if not existing.data:
-        supabase.table('prices').insert({
-            'coupon_type': 'S01',
-            'price_1': 10,
-            'price_5': 45,
-            'price_10': 85,
-            'price_20': 160
-        }).execute()
+    default_prices = {
+        'S01': {'price_1': 10, 'price_5': 45, 'price_10': 85, 'price_20': 160},
+        '1K': {'price_1': 25, 'price_5': 120, 'price_10': 230, 'price_20': 440}
+    }
+
+    for ct, prices in default_prices.items():
+        existing = supabase.table('prices').select('*').eq('coupon_type', ct).execute()
+        if not existing.data:
+            supabase.table('prices').insert({
+                'coupon_type': ct,
+                **prices
+            }).execute()
 init_prices()
 
 # Setup logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # ==================== CONSTANTS ====================
-COUPON_TYPES = ['S01']
+COUPON_TYPES = ['S01', '1K']
 MAX_QUANTITY = 5
 
 # Conversation states
@@ -92,7 +95,16 @@ def get_agree_decline_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def get_coupon_type_keyboard():
-    keyboard = [[InlineKeyboardButton(f"{ct} Off", callback_data=f"ctype_{ct}")] for ct in COUPON_TYPES]
+    keyboard = []
+for ct in COUPON_TYPES:
+    if ct == "S01":
+        name = "S01 Off"
+    elif ct == "1K":
+        name = "1K Sheinverse"
+    else:
+        name = ct
+
+    keyboard.append([InlineKeyboardButton(name, callback_data=f"ctype_{ct}")])
     return InlineKeyboardMarkup(keyboard)
 
 def generate_order_id():
@@ -116,6 +128,17 @@ async def is_user_blocked(username):
         return len(result.data) > 0
     except:
         return False
+
+def reset_user_flow(context):
+    keys = [
+        'coupon_type',
+        'order_id',
+        'qty',
+        'price_per',
+        'total'
+    ]
+    for k in keys:
+        context.user_data.pop(k, None)
 
 # ---------- Bot status check ----------
 async def check_bot_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -486,6 +509,7 @@ async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     if query.data == "agree_terms":
+        reset_user_flow(context)  # 🔥 ADD THIS
         await query.edit_message_text("🛒 Select a coupon type:", reply_markup=get_coupon_type_keyboard())
     else:
         await query.edit_message_text("Thanks for using the bot. Goodbye!")
@@ -493,17 +517,30 @@ async def terms_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def coupon_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return
+
     query = update.callback_query
     await query.answer()
+
+    # 🔥 RESET OLD FLOW
+    reset_user_flow(context)
+
     ctype = query.data.split('_')[1]
     context.user_data['coupon_type'] = ctype
 
     count = supabase.table('coupons').select('*', count='exact').eq('type', ctype).eq('is_used', False).execute()
     stock = count.count if hasattr(count, 'count') else 0
+
+    # 🔥 Custom Name
+    if ctype == "1K":
+        name = "1K Sheinverse"
+    else:
+        name = f"{ctype} Off"
+
     await query.edit_message_text(
-        f"🏷️ {ctype} Off\n📦 Available stock: {stock}\n\n"
+        f"🏷️ {name}\n📦 Available stock: {stock}\n\n"
         f"Please enter the quantity (maximum {MAX_QUANTITY}):"
     )
+
     return CUSTOM_QUANTITY
 
 async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -527,9 +564,14 @@ async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
             return CUSTOM_QUANTITY
         await process_quantity(update, context, qty)
     except:
+        # 🔥 check if user switched flow
+        if 'coupon_type' not in context.user_data:
+            await update.message.reply_text("Session expired. Please select voucher again.")
+            return ConversationHandler.END
+
         await update.message.reply_text("Invalid number. Please enter a valid quantity (1-5):")
         return CUSTOM_QUANTITY
-    return ConversationHandler.END
+        return ConversationHandler.END
 
 async def process_quantity(update: Update, context: ContextTypes.DEFAULT_TYPE, qty):
     ctype = context.user_data['coupon_type']
