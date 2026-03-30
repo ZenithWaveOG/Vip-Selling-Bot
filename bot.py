@@ -60,6 +60,17 @@ WAITING_UTR, WAITING_PAYMENT_SCREENSHOT = range(2, 4)
 # Additional states for admin actions
 WAITING_BLOCK_USERNAME, WAITING_UNBLOCK_USERNAME = range(4, 6)
 
+# Define menu button texts (used to detect when user wants to exit quantity input)
+MAIN_MENU_BUTTONS = {
+    "🛒 Buy Vouchers", "📦 My Orders", "📜 Disclaimer", "🆘 Support", "📢 Our Channels"
+}
+ADMIN_MENU_BUTTONS = {
+    "🛠 Admin Panel", "➕ Add Coupon", "➖ Remove Coupon", "📊 Stock", "🎁 Get Free Code",
+    "💰 Change Prices", "📢 Broadcast", "🕒 Last 10 Purchases", "🖼 Update QR",
+    "👥 User Status", "🚫 Block User", "✅ Unblock User", "🔛 Turn Off", "🔴 Turn On"
+}
+ALL_MENU_BUTTONS = MAIN_MENU_BUTTONS | ADMIN_MENU_BUTTONS
+
 # ==================== HELPER FUNCTIONS ====================
 def get_main_menu(user_id=None):
     buttons = [
@@ -173,6 +184,7 @@ async def check_bot_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 # ==================== HANDLERS ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reset_user_flow(context)  # Clear any ongoing conversation
     if not await check_bot_status(update, context):
         return
     user = update.effective_user
@@ -196,6 +208,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(stock_msg, reply_markup=get_main_menu(user.id))
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reset_user_flow(context)  # Clear any ongoing conversation
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("Unauthorized.")
         return
@@ -559,18 +572,40 @@ async def coupon_type_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         name = f"{ctype} Off"
 
+    # Add a cancel button to the quantity prompt
+    cancel_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❌ Cancel", callback_data="cancel_quantity")]
+    ])
     await query.edit_message_text(
         f"🏷️ {name}\n📦 Available stock: {stock}\n\n"
-        f"Please enter the quantity (maximum {MAX_QUANTITY}):"
+        f"Please enter the quantity (maximum {MAX_QUANTITY}):",
+        reply_markup=cancel_keyboard
     )
 
     return CUSTOM_QUANTITY
 
+async def cancel_quantity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Cancel the quantity input and return to main menu."""
+    query = update.callback_query
+    await query.answer()
+    reset_user_flow(context)
+    await query.edit_message_text("Purchase cancelled.", reply_markup=get_main_menu(update.effective_user.id))
+    return ConversationHandler.END
+
 async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await check_bot_status(update, context):
         return ConversationHandler.END
+
+    text = update.message.text
+
+    # If the user pressed a menu button, exit the quantity flow and process that button
+    if text in ALL_MENU_BUTTONS:
+        reset_user_flow(context)
+        await menu_handler(update, context)
+        return ConversationHandler.END
+
     try:
-        qty = int(update.message.text)
+        qty = int(text)
         if qty <= 0:
             raise ValueError
         if qty > MAX_QUANTITY:
@@ -586,7 +621,7 @@ async def custom_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
             await update.message.reply_text(f"❌ Only {stock} codes available. Please enter a lower quantity (1-{MAX_QUANTITY}):")
             return CUSTOM_QUANTITY
         await process_quantity(update, context, qty)
-    except:
+    except ValueError:
         # 🔥 check if user switched flow
         if 'coupon_type' not in context.user_data:
             await update.message.reply_text("Session expired. Please select voucher again.")
@@ -870,6 +905,7 @@ telegram_app.add_handler(payment_conv_handler)
 telegram_app.add_handler(CallbackQueryHandler(terms_callback, pattern="^(agree|decline)_terms$"))
 telegram_app.add_handler(CallbackQueryHandler(admin_accept_decline, pattern="^(accept|decline)_"))
 telegram_app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
+telegram_app.add_handler(CallbackQueryHandler(cancel_quantity_callback, pattern="^cancel_quantity$"))  # NEW
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
