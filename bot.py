@@ -19,7 +19,7 @@ print("Imports OK", flush=True)
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
-ADMIN_IDS = [8778422236]  # Replace with your Telegram user ID
+ADMIN_IDS = [7522869983]  # Replace with your Telegram user ID
 
 # Initialize Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -273,11 +273,30 @@ async def handle_admin_option(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.clear()
         await update.message.reply_text("Select coupon type to remove:", reply_markup=get_coupon_type_admin_keyboard('remove'))
     elif option == "📊 Stock":
-        msg = "Current Stock:\n"
+        msg = "✏️ VIP BOT SHOP\n━━━━━━━━━━━━━━\n📊 Current Stock\n\n"
+
         for ct in COUPON_TYPES:
+            # Get stock
             count = supabase.table('coupons').select('*', count='exact').eq('type', ct).eq('is_used', False).execute()
             stock = count.count if hasattr(count, 'count') else 0
-            msg += f"{ct} Off: {stock}\n"
+
+            # Get price
+            price = supabase.table('prices').select('price_1').eq('coupon_type', ct).execute()
+            price_val = price.data[0]['price_1'] if price.data else 'N/A'
+
+            # Custom names
+            if ct == "S01":
+                name = "S01 Off"
+            elif ct == "1K":
+                name = "1K Sheinverse"
+            else:
+                name = ct
+ 
+            msg += f"▫️ {name}: {stock} left (₹{price_val})\n"
+
+        # 🔥 ADD THIS LINE
+        msg += "\n🤖 Buy from: @VIIP_SELLING_BOT"
+
         await update.message.reply_text(msg, reply_markup=get_admin_reply_keyboard())
     elif option == "🎁 Get Free Code":
         context.user_data.clear()
