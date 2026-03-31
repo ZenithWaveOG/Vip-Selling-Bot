@@ -51,7 +51,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # ==================== CONSTANTS ====================
 COUPON_TYPES = ['S01', '1K']
-MAX_QUANTITY = 5
+MAX_QUANTITY = 2   # <-- CHANGED from 5 to 2
 
 # Conversation states
 SELECTING_COUPON_TYPE, CUSTOM_QUANTITY = range(2)
